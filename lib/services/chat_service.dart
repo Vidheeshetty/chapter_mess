@@ -1,93 +1,120 @@
-import 'package:shared_preferences.dart';
 import 'dart:convert';
 import '../models/chat_models.dart';
 
 class ChatService {
-  static const String _messagesKey = 'chat_messages';
-  static const String _usersKey = 'chat_users';
+  // In-memory storage for messages and users
+  static final Map<String, List<Message>> _messagesCache = {};
+  static final List<ChatUser> _usersCache = [];
 
   static Future<void> saveMessage(String userId, Message message) async {
-    final prefs = await SharedPreferences.getInstance();
-    final messagesJson = prefs.getString('${_messagesKey}_$userId') ?? '[]';
-    final messages = jsonDecode(messagesJson) as List;
+    // Initialize the list if it doesn't exist
+    if (!_messagesCache.containsKey(userId)) {
+      _messagesCache[userId] = [];
+    }
 
-    messages.add({
-      'id': message.id,
-      'content': message.content,
-      'timestamp': message.timestamp.millisecondsSinceEpoch,
-      'isMe': message.isMe,
-      'type': message.type.name,
-      'gifUrl': message.gifUrl,
-    });
-
-    await prefs.setString('${_messagesKey}_$userId', jsonEncode(messages));
+    // Add the message to the cache
+    _messagesCache[userId]!.add(message);
   }
 
   static Future<List<Message>> getMessages(String userId) async {
-    final prefs = await SharedPreferences.getInstance();
-    final messagesJson = prefs.getString('${_messagesKey}_$userId') ?? '[]';
-    final messages = jsonDecode(messagesJson) as List;
-
-    return messages.map((msg) => Message(
-      id: msg['id'],
-      content: msg['content'],
-      timestamp: DateTime.fromMillisecondsSinceEpoch(msg['timestamp']),
-      isMe: msg['isMe'],
-      type: MessageType.values.firstWhere((e) => e.name == msg['type']),
-      gifUrl: msg['gifUrl'],
-    )).toList();
+    // Return messages from cache, or empty list if none exist
+    return _messagesCache[userId] ?? [];
   }
 
   static Future<void> deleteConversation(String userId) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('${_messagesKey}_$userId');
+    // Remove messages for this user from cache
+    _messagesCache.remove(userId);
+
+    // Also remove the user from the users cache
+    _usersCache.removeWhere((user) => user.id == userId);
   }
 
   static Future<void> saveChatUsers(List<ChatUser> users) async {
-    final prefs = await SharedPreferences.getInstance();
-    final usersJson = users.map((user) => {
-      'id': user.id,
-      'name': user.name,
-      'profilePicture': user.profilePicture,
-      'isOnline': user.isOnline,
-    }).toList();
+    // Clear the current cache and add new users
+    _usersCache.clear();
+    _usersCache.addAll(users);
 
-    await prefs.setString(_usersKey, jsonEncode(usersJson));
+    // Also save their messages to the messages cache
+    for (var user in users) {
+      if (user.messages.isNotEmpty) {
+        _messagesCache[user.id] = List.from(user.messages);
+      }
+    }
   }
 
   static Future<List<ChatUser>> getChatUsers() async {
-    final prefs = await SharedPreferences.getInstance();
-    final usersJson = prefs.getString(_usersKey) ?? '[]';
-    final users = jsonDecode(usersJson) as List;
+    // Create a list to return with updated messages
+    List<ChatUser> updatedUsers = [];
 
-    List<ChatUser> chatUsers = [];
-    for (var user in users) {
-      final messages = await getMessages(user['id']);
-      chatUsers.add(ChatUser(
-        id: user['id'],
-        name: user['name'],
-        profilePicture: user['profilePicture'],
-        isOnline: user['isOnline'],
+    for (var user in _usersCache) {
+      // Get the latest messages for this user
+      final messages = await getMessages(user.id);
+
+      // Create a new ChatUser with updated messages
+      updatedUsers.add(ChatUser(
+        id: user.id,
+        name: user.name,
+        profilePicture: user.profilePicture,
+        isOnline: user.isOnline,
         messages: messages,
       ));
     }
 
-    return chatUsers;
+    return updatedUsers;
   }
 
   static Future<void> updateUserOnlineStatus(String userId, bool isOnline) async {
-    final users = await getChatUsers();
-    final userIndex = users.indexWhere((user) => user.id == userId);
+    // Find the user in the cache and update their online status
+    final userIndex = _usersCache.indexWhere((user) => user.id == userId);
 
     if (userIndex != -1) {
-      users[userIndex] = ChatUser(
-        id: users[userIndex].id,
-        name: users[userIndex].name,
-        profilePicture: users[userIndex].profilePicture,
+      final user = _usersCache[userIndex];
+      _usersCache[userIndex] = ChatUser(
+        id: user.id,
+        name: user.name,
+        profilePicture: user.profilePicture,
         isOnline: isOnline,
-        messages: users[userIndex].messages,
+        messages: user.messages,
       );
-      await saveChatUsers(users);
     }
+  }
+
+  // Helper method to add a new user to the cache
+  static Future<void> addUser(ChatUser user) async {
+    // Check if user already exists
+    final existingIndex = _usersCache.indexWhere((u) => u.id == user.id);
+
+    if (existingIndex != -1) {
+      // Update existing user
+      _usersCache[existingIndex] = user;
+    } else {
+      // Add new user
+      _usersCache.add(user);
+    }
+
+    // Save their messages to the messages cache
+    if (user.messages.isNotEmpty) {
+      _messagesCache[user.id] = List.from(user.messages);
+    }
+  }
+
+  // Helper method to clear all data (useful for logout/reset)
+  static Future<void> clearAllData() async {
+    _messagesCache.clear();
+    _usersCache.clear();
+  }
+
+  // Helper method to get message count for a user
+  static int getMessageCount(String userId) {
+    return _messagesCache[userId]?.length ?? 0;
+  }
+
+  // Helper method to get last message for a user
+  static Message? getLastMessage(String userId) {
+    final messages = _messagesCache[userId];
+    if (messages != null && messages.isNotEmpty) {
+      return messages.last;
+    }
+    return null;
   }
 }

@@ -24,7 +24,7 @@ class AppTheme {
   static ThemeData lightTheme = ThemeData(
     useMaterial3: true,
     brightness: Brightness.light,
-    fontFamily: 'Poppins',
+    fontFamily: 'Poppins', // Uncommented to use Poppins font
     primaryColor: primaryBlue,
     scaffoldBackgroundColor: backgroundLight,
     colorScheme: const ColorScheme.light(
@@ -46,7 +46,7 @@ class AppTheme {
         color: black,
         fontSize: 18,
         fontWeight: FontWeight.w600,
-        fontFamily: 'Poppins',
+        fontFamily: 'Poppins', // Uncommented
       ),
     ),
     bottomNavigationBarTheme: const BottomNavigationBarThemeData(
@@ -68,25 +68,25 @@ class AppTheme {
         fontSize: 24,
         fontWeight: FontWeight.bold,
         color: black,
-        fontFamily: 'Poppins',
+        fontFamily: 'Poppins', // Uncommented
       ),
       headlineMedium: TextStyle(
         fontSize: 20,
         fontWeight: FontWeight.w600,
         color: black,
-        fontFamily: 'Poppins',
+        fontFamily: 'Poppins', // Uncommented
       ),
       bodyLarge: TextStyle(
         fontSize: 16,
         fontWeight: FontWeight.normal,
         color: black,
-        fontFamily: 'Poppins',
+        fontFamily: 'Poppins', // Uncommented
       ),
       bodyMedium: TextStyle(
         fontSize: 14,
         fontWeight: FontWeight.normal,
         color: mediumGrey,
-        fontFamily: 'Poppins',
+        fontFamily: 'Poppins', // Uncommented
       ),
     ),
   );
@@ -94,7 +94,7 @@ class AppTheme {
   static ThemeData darkTheme = ThemeData(
     useMaterial3: true,
     brightness: Brightness.dark,
-    fontFamily: 'Poppins',
+    fontFamily: 'Poppins', // Uncommented to use Poppins font
     primaryColor: primaryBlue,
     scaffoldBackgroundColor: backgroundDark,
     colorScheme: const ColorScheme.dark(
@@ -116,7 +116,7 @@ class AppTheme {
         color: white,
         fontSize: 18,
         fontWeight: FontWeight.w600,
-        fontFamily: 'Poppins',
+        fontFamily: 'Poppins', // Uncommented
       ),
     ),
     bottomNavigationBarTheme: const BottomNavigationBarThemeData(
@@ -138,25 +138,25 @@ class AppTheme {
         fontSize: 24,
         fontWeight: FontWeight.bold,
         color: white,
-        fontFamily: 'Poppins',
+        fontFamily: 'Poppins', // Uncommented
       ),
       headlineMedium: TextStyle(
         fontSize: 20,
         fontWeight: FontWeight.w600,
         color: white,
-        fontFamily: 'Poppins',
+        fontFamily: 'Poppins', // Uncommented
       ),
       bodyLarge: TextStyle(
         fontSize: 16,
         fontWeight: FontWeight.normal,
         color: white,
-        fontFamily: 'Poppins',
+        fontFamily: 'Poppins', // Uncommented
       ),
       bodyMedium: TextStyle(
         fontSize: 14,
         fontWeight: FontWeight.normal,
         color: mediumGrey,
-        fontFamily: 'Poppins',
+        fontFamily: 'Poppins', // Uncommented
       ),
     ),
   );
