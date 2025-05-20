@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
-import 'dart:async';
+import 'package:provider/provider.dart';
 import '../models/chat_models.dart';
+import '../services/call_service.dart';
 
 class CallScreen extends StatefulWidget {
   final ChatUser user;
@@ -16,27 +17,28 @@ class CallScreen extends StatefulWidget {
   State<CallScreen> createState() => _CallScreenState();
 }
 
-class _CallScreenState extends State<CallScreen>
-    with TickerProviderStateMixin {
+class _CallScreenState extends State<CallScreen> with TickerProviderStateMixin {
   late AnimationController _pulseController;
   late AnimationController _rippleController;
   late Animation<double> _pulseAnimation;
   late Animation<double> _rippleAnimation;
-  Timer? _callTimer;
-  CallState _callState = CallState.ringing;
-  int _callDuration = 0;
-  bool _isMuted = false;
-  bool _isSpeakerOn = false;
-  bool _isVideoEnabled = true;
-  bool _cameraPermissionDenied = false;
+  late CallService _callService;
+  bool _isInitialized = false;
 
   @override
   void initState() {
     super.initState();
     _initializeAnimations();
-    _startRinging();
-    if (widget.isVideoCall) {
-      _checkCameraPermission();
+    _startCall();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _callService = Provider.of<CallService>(context);
+    
+    if (!_isInitialized) {
+      _isInitialized = true;
     }
   }
 
@@ -70,62 +72,53 @@ class _CallScreenState extends State<CallScreen>
     _rippleController.repeat();
   }
 
-  void _checkCameraPermission() {
-    // Simulate camera permission denied
-    Future.delayed(const Duration(seconds: 1), () {
-      if (mounted) {
-        setState(() {
-          _cameraPermissionDenied = true;
-        });
-      }
-    });
+  Future<void> _startCall() async {
+    if (_callService.callDirection == CallDirection.incoming) {
+      // This is an incoming call, don't initiate a new one
+      return;
+    }
+    
+    // Start a new outgoing call
+    final success = await _callService.startCall(widget.user, widget.isVideoCall);
+    
+    if (!success && mounted) {
+      // Show error and navigate back if call fails to start
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Failed to start call. Please try again.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      
+      Navigator.of(context).pop();
+    }
   }
 
-  void _startRinging() {
-    Timer(const Duration(seconds: 3), () {
-      if (mounted && _callState == CallState.ringing) {
-        setState(() {
-          _callState = CallState.incoming;
-        });
-      }
-    });
+  Future<void> _acceptCall() async {
+    await _callService.answerCall();
+    
+    if (_pulseController.isAnimating) {
+      _pulseController.stop();
+    }
+    
+    if (_rippleController.isAnimating) {
+      _rippleController.stop();
+    }
   }
 
-  void _acceptCall() {
-    setState(() {
-      _callState = CallState.connected;
-    });
-    _pulseController.stop();
-    _rippleController.stop();
-    _startCallTimer();
-  }
-
-  void _startCallTimer() {
-    _callTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (mounted) {
-        setState(() {
-          _callDuration++;
-        });
-      }
-    });
-  }
-
-  void _endCall() {
-    _callTimer?.cancel();
-    _pulseController.stop();
-    _rippleController.stop();
-    Navigator.pop(context);
-  }
-
-  String _formatDuration(int seconds) {
-    final hours = seconds ~/ 3600;
-    final minutes = (seconds % 3600) ~/ 60;
-    final remainingSeconds = seconds % 60;
-
-    if (hours > 0) {
-      return '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}:${remainingSeconds.toString().padLeft(2, '0')}';
-    } else {
-      return '${minutes.toString().padLeft(2, '0')}:${remainingSeconds.toString().padLeft(2, '0')}';
+  Future<void> _endCall() async {
+    await _callService.endCall();
+    
+    if (_pulseController.isAnimating) {
+      _pulseController.stop();
+    }
+    
+    if (_rippleController.isAnimating) {
+      _rippleController.stop();
+    }
+    
+    if (mounted) {
+      Navigator.pop(context);
     }
   }
 
@@ -133,247 +126,227 @@ class _CallScreenState extends State<CallScreen>
   void dispose() {
     _pulseController.dispose();
     _rippleController.dispose();
-    _callTimer?.cancel();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: widget.isVideoCall
-          ? Colors.black
-          : Theme.of(context).colorScheme.background,
-      body: SafeArea(
-        child: Stack(
-          children: [
-            // Background gradient for video calls
-            if (widget.isVideoCall)
-              Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Colors.black.withOpacity(0.7),
-                      Colors.black.withOpacity(0.9),
-                    ],
-                  ),
-                ),
-              ),
-
-            Column(
+    return Consumer<CallService>(
+      builder: (context, callService, child) {
+        final user = callService.remoteUser ?? widget.user;
+        final isIncomingCall = callService.callDirection == CallDirection.incoming;
+        final isConnected = callService.isInCall;
+        
+        return Scaffold(
+          backgroundColor: widget.isVideoCall
+              ? Colors.black
+              : Theme.of(context).colorScheme.background,
+          body: SafeArea(
+            child: Stack(
               children: [
-                // Top bar with back button and call info
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Row(
-                    children: [
-                      IconButton(
-                        icon: Icon(
-                          Icons.keyboard_arrow_down,
-                          color: widget.isVideoCall ? Colors.white : null,
-                          size: 32,
-                        ),
-                        onPressed: _endCall,
-                      ),
-                      const Spacer(),
-                      Text(
-                        _getCallStatusText(),
-                        style: TextStyle(
-                          color: widget.isVideoCall
-                              ? Colors.white
-                              : Theme.of(context).colorScheme.onBackground,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                      const Spacer(),
-                      SizedBox(width: 48), // Balance the back button
-                    ],
-                  ),
-                ),
-
-                Expanded(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      // User avatar with animations
-                      Stack(
-                        alignment: Alignment.center,
-                        children: [
-                          // Ripple effect
-                          if (_callState == CallState.ringing)
-                            AnimatedBuilder(
-                              animation: _rippleAnimation,
-                              builder: (context, child) {
-                                return Container(
-                                  width: 280 + (_rippleAnimation.value * 40),
-                                  height: 280 + (_rippleAnimation.value * 40),
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    border: Border.all(
-                                      color: _getAvatarColor(widget.user.name)
-                                          .withOpacity(0.3 - (_rippleAnimation.value * 0.3)),
-                                      width: 2,
-                                    ),
-                                  ),
-                                );
-                              },
-                            ),
-
-                          // Main avatar with pulse effect
-                          AnimatedBuilder(
-                            animation: _pulseAnimation,
-                            builder: (context, child) {
-                              return Transform.scale(
-                                scale: _callState == CallState.ringing
-                                    ? _pulseAnimation.value
-                                    : 1.0,
-                                child: Container(
-                                  width: 220,
-                                  height: 220,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    color: _getAvatarColor(widget.user.name),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: _getAvatarColor(widget.user.name).withOpacity(0.4),
-                                        blurRadius: 30,
-                                        spreadRadius: 10,
-                                      ),
-                                    ],
-                                  ),
-                                  child: Center(
-                                    child: Text(
-                                      widget.user.name[0].toUpperCase(),
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 80,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
+                // Background gradient for video calls
+                if (widget.isVideoCall)
+                  Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.black.withOpacity(0.7),
+                          Colors.black.withOpacity(0.9),
                         ],
                       ),
-
-                      const SizedBox(height: 40),
-
-                      // User name
-                      Text(
-                        widget.user.name,
-                        style: TextStyle(
-                          color: widget.isVideoCall
-                              ? Colors.white
-                              : Theme.of(context).colorScheme.onBackground,
-                          fontSize: 32,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-
-                      const SizedBox(height: 8),
-
-                      // Call duration or status
-                      if (_callState == CallState.connected)
-                        Text(
-                          _formatDuration(_callDuration),
-                          style: TextStyle(
-                            color: widget.isVideoCall
-                                ? Colors.white70
-                                : Theme.of(context).colorScheme.onBackground.withOpacity(0.7),
-                            fontSize: 18,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        )
-                      else
-                        Column(
-                          children: [
-                            Text(
-                              widget.isVideoCall ? 'Incoming video call...' : 'Incoming voice call...',
-                              style: TextStyle(
-                                color: widget.isVideoCall
-                                    ? Colors.white70
-                                    : Theme.of(context).colorScheme.onBackground.withOpacity(0.7),
-                                fontSize: 16,
-                              ),
-                            ),
-                            if (_callState == CallState.ringing)
-                              Padding(
-                                padding: const EdgeInsets.only(top: 16),
-                                child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: List.generate(3, (index) {
-                                    return AnimatedContainer(
-                                      duration: Duration(milliseconds: 300 + (index * 100)),
-                                      margin: const EdgeInsets.symmetric(horizontal: 4),
-                                      width: 8,
-                                      height: 8,
-                                      decoration: BoxDecoration(
-                                        color: widget.isVideoCall
-                                            ? Colors.white70
-                                            : Theme.of(context).colorScheme.onBackground.withOpacity(0.7),
-                                        shape: BoxShape.circle,
-                                      ),
-                                    );
-                                  }),
-                                ),
-                              ),
-                          ],
-                        ),
-                    ],
-                  ),
-                ),
-
-                // Video call error message (when camera permission denied)
-                if (widget.isVideoCall && _cameraPermissionDenied && _callState != CallState.ringing)
-                  Container(
-                    margin: const EdgeInsets.all(16),
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.red.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.red.withOpacity(0.3)),
                     ),
-                    child: const Row(
-                      children: [
-                        Icon(Icons.warning, color: Colors.red, size: 24),
-                        SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            'Camera permission denied',
+                  ),
+
+                Column(
+                  children: [
+                    // Top bar with back button and call info
+                    Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Row(
+                        children: [
+                          IconButton(
+                            icon: Icon(
+                              Icons.keyboard_arrow_down,
+                              color: widget.isVideoCall ? Colors.white : null,
+                              size: 32,
+                            ),
+                            onPressed: _endCall,
+                          ),
+                          const Spacer(),
+                          Text(
+                            _getCallStatusText(callService),
                             style: TextStyle(
-                              color: Colors.red,
+                              color: widget.isVideoCall
+                                  ? Colors.white
+                                  : Theme.of(context).colorScheme.onBackground,
                               fontSize: 16,
                               fontWeight: FontWeight.w500,
                             ),
                           ),
-                        ),
-                      ],
+                          const Spacer(),
+                          SizedBox(width: 48), // Balance the back button
+                        ],
+                      ),
                     ),
-                  ),
 
-                // Call controls
-                Padding(
-                  padding: const EdgeInsets.all(32),
-                  child: _buildCallControls(),
+                    Expanded(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          // User avatar with animations
+                          Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              // Ripple effect
+                              if (!isConnected)
+                                AnimatedBuilder(
+                                  animation: _rippleAnimation,
+                                  builder: (context, child) {
+                                    return Container(
+                                      width: 280 + (_rippleAnimation.value * 40),
+                                      height: 280 + (_rippleAnimation.value * 40),
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        border: Border.all(
+                                          color: _getAvatarColor(user.name)
+                                              .withOpacity(0.3 - (_rippleAnimation.value * 0.3)),
+                                          width: 2,
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+
+                              // Main avatar with pulse effect
+                              AnimatedBuilder(
+                                animation: _pulseAnimation,
+                                builder: (context, child) {
+                                  return Transform.scale(
+                                    scale: !isConnected
+                                        ? _pulseAnimation.value
+                                        : 1.0,
+                                    child: Container(
+                                      width: 220,
+                                      height: 220,
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        color: _getAvatarColor(user.name),
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: _getAvatarColor(user.name).withOpacity(0.4),
+                                            blurRadius: 30,
+                                            spreadRadius: 10,
+                                          ),
+                                        ],
+                                      ),
+                                      child: Center(
+                                        child: Text(
+                                          user.name[0].toUpperCase(),
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 80,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ],
+                          ),
+
+                          const SizedBox(height: 40),
+
+                          // User name
+                          Text(
+                            user.name,
+                            style: TextStyle(
+                              color: widget.isVideoCall
+                                  ? Colors.white
+                                  : Theme.of(context).colorScheme.onBackground,
+                              fontSize: 32,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+
+                          const SizedBox(height: 8),
+
+                          // Call status text
+                          if (isConnected)
+                            Text(
+                              widget.isVideoCall ? 'Connected video call' : 'Connected voice call',
+                              style: TextStyle(
+                                color: widget.isVideoCall
+                                    ? Colors.white70
+                                    : Theme.of(context).colorScheme.onBackground.withOpacity(0.7),
+                                fontSize: 18,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            )
+                          else
+                            Column(
+                              children: [
+                                Text(
+                                  widget.isVideoCall ? 
+                                    (isIncomingCall ? 'Incoming video call...' : 'Calling...') : 
+                                    (isIncomingCall ? 'Incoming voice call...' : 'Calling...'),
+                                  style: TextStyle(
+                                    color: widget.isVideoCall
+                                        ? Colors.white70
+                                        : Theme.of(context).colorScheme.onBackground.withOpacity(0.7),
+                                    fontSize: 16,
+                                  ),
+                                ),
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 16),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: List.generate(3, (index) {
+                                      return AnimatedContainer(
+                                        duration: Duration(milliseconds: 300 + (index * 100)),
+                                        margin: const EdgeInsets.symmetric(horizontal: 4),
+                                        width: 8,
+                                        height: 8,
+                                        decoration: BoxDecoration(
+                                          color: widget.isVideoCall
+                                              ? Colors.white70
+                                              : Theme.of(context).colorScheme.onBackground.withOpacity(0.7),
+                                          shape: BoxShape.circle,
+                                        ),
+                                      );
+                                    }),
+                                  ),
+                                ),
+                              ],
+                            ),
+                        ],
+                      ),
+                    ),
+
+                    // Call controls
+                    Padding(
+                      padding: const EdgeInsets.all(32),
+                      child: _buildCallControls(callService),
+                    ),
+                  ],
                 ),
               ],
             ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 
-  Widget _buildCallControls() {
-    if (_callState == CallState.ringing) {
-      return const SizedBox.shrink();
-    }
-
-    if (_callState == CallState.incoming) {
+  Widget _buildCallControls(CallService callService) {
+    final isConnected = callService.isInCall;
+    final isIncomingCall = callService.callDirection == CallDirection.incoming;
+    
+    // Incoming call controls (accept/decline)
+    if (isIncomingCall && !isConnected) {
       return Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
@@ -429,18 +402,14 @@ class _CallScreenState extends State<CallScreen>
       );
     }
 
-    // Connected call controls
+    // Outgoing calling or connected call controls
     List<Widget> controls = [
       // Mute button
       _buildControlButton(
-        icon: _isMuted ? Icons.mic_off : Icons.mic,
-        isActive: _isMuted,
+        icon: callService.isMuted ? Icons.mic_off : Icons.mic,
+        isActive: callService.isMuted,
         activeColor: Colors.red,
-        onTap: () {
-          setState(() {
-            _isMuted = !_isMuted;
-          });
-        },
+        onTap: () => callService.toggleMute(),
       ),
     ];
 
@@ -448,27 +417,19 @@ class _CallScreenState extends State<CallScreen>
     if (!widget.isVideoCall) {
       controls.add(
         _buildControlButton(
-          icon: _isSpeakerOn ? Icons.volume_up : Icons.volume_down,
-          isActive: _isSpeakerOn,
+          icon: callService.isSpeakerOn ? Icons.volume_up : Icons.volume_down,
+          isActive: callService.isSpeakerOn,
           activeColor: Theme.of(context).colorScheme.primary,
-          onTap: () {
-            setState(() {
-              _isSpeakerOn = !_isSpeakerOn;
-            });
-          },
+          onTap: () => callService.toggleSpeaker(),
         ),
       );
     } else {
       controls.add(
         _buildControlButton(
-          icon: _isVideoEnabled ? Icons.videocam : Icons.videocam_off,
-          isActive: !_isVideoEnabled,
+          icon: callService.isCameraOn ? Icons.videocam : Icons.videocam_off,
+          isActive: !callService.isCameraOn,
           activeColor: Colors.red,
-          onTap: () {
-            setState(() {
-              _isVideoEnabled = !_isVideoEnabled;
-            });
-          },
+          onTap: () => callService.toggleCamera(),
         ),
       );
     }
@@ -522,14 +483,14 @@ class _CallScreenState extends State<CallScreen>
     );
   }
 
-  String _getCallStatusText() {
-    switch (_callState) {
-      case CallState.ringing:
-        return 'Calling...';
-      case CallState.incoming:
-        return widget.isVideoCall ? 'Incoming Video Call' : 'Incoming Voice Call';
-      case CallState.connected:
-        return widget.isVideoCall ? 'Video Call' : 'Voice Call';
+  String _getCallStatusText(CallService callService) {
+    final isConnected = callService.isInCall;
+    final isIncomingCall = callService.callDirection == CallDirection.incoming;
+    
+    if (!isConnected) {
+      return isIncomingCall ? 'Incoming Call' : 'Calling...';
+    } else {
+      return widget.isVideoCall ? 'Video Call' : 'Voice Call';
     }
   }
 
@@ -546,10 +507,4 @@ class _CallScreenState extends State<CallScreen>
     ];
     return colors[name.hashCode % colors.length];
   }
-}
-
-enum CallState {
-  ringing,
-  incoming,
-  connected,
 }
